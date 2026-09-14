@@ -110,3 +110,26 @@ def modifier_etablissement(id_centre: int, centre_modifie: EtablissementCreate, 
         "message": "Fiche établissement mise à jour avec succès !",
         "data": etablissement_cible
     }
+
+# 🗑️ ROUTE POUR SUPPRIMER DÉFINITIVEMENT UN ÉTABLISSEMENT
+@router.delete("/supprimer/{id_centre}", status_code=status.HTTP_200_OK)
+def supprimer_etablissement(id_centre: int, db: Session = Depends(get_db_session)):
+    
+    # 1. Recherche de l'établissement dans la base SQLite
+    etablissement_cible = db.get(Etablissement, id_centre)
+    
+    # 2. Si l'établissement n'existe pas, on renvoie une erreur 404
+    if not etablissement_cible:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="⚠️ Erreur : Cet établissement n'existe pas ou a déjà été supprimé."
+        )
+        
+    # 3. Suppression physique de la ligne dans la base de données
+    db.delete(etablissement_cible)
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": f"L'établissement '{etablissement_cible.nom_etablissement}' a été retiré définitivement du répertoire officiel."
+    }

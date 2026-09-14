@@ -18,7 +18,7 @@ app = FastAPI(
     description="Backend robuste pour la gestion décentralisée des examens et demandes de titres.",
     version="1.0.0"
 )
-
+app = FastAPI(title="SI DRETFP Centralisé")
 @app.on_event("startup")
 def on_startup():
     init_db_tables() # Génère les tables de manière automatisée au lancement
@@ -32,7 +32,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"], # Autorise toutes les méthodes (GET, POST, PUT, DELETE)
     allow_headers=["*"], # Autorise tous les en-têtes (y compris le Token JWT)

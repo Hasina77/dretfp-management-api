@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 from app.database.config import get_db_session
 from app.database.models import User
 from app.core.security import get_password_hash, verify_password, create_access_token
+from typing import List, Optional
 
 router = APIRouter()
 
@@ -73,3 +74,24 @@ def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         "role": user.role,
         "centre_affectation": user.centre_affectation
     }
+# Schéma Pydantic de sortie pour filtrer et masquer le mot de passe haché (Sécurité Master 2)
+class UserOut(BaseModel):
+    id_user: Optional[int] = None
+    email: str
+    role: str
+    centre_affectation: str
+    date_creation: Optional[str] = None
+
+# ==============================================================================
+# 📋 EXCLUSIF ADMIN : LISTER TOUS LES COMPTES ENREGISTRÉS
+# ==============================================================================
+@router.get("/utilisateurs", response_model=List[UserOut], status_code=status.HTTP_200_OK)
+def lister_tous_les_utilisateurs(db: Session = Depends(get_db_session)):
+    """
+    Récupère la liste de tous les comptes (Admins et Chefs de Centre) 
+    inscrits dans la base de données centrale SQLite.
+    """
+    requete_sql = select(User).order_by(User.id_user.desc())
+    liste_utilisateurs = db.exec(requete_sql).all()
+    
+    return liste_utilisateurs
