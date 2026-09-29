@@ -1,18 +1,27 @@
-import os
-from sqlmodel import SQLModel, create_engine, Session
+import urllib.parse
+from sqlmodel import create_engine, SQLModel, Session
 
-# 1. Définition du chemin de la base de données (SQLite en local pour le dev)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'dretfp_central_db.sqlite')}"
+UTILISATEUR = "root"
+MOT_DE_PASSE_BRUT = "" 
+NOM_BASE_DE_DONNEES = "dretfp_db"
 
-# 2. Création du moteur de connexion (Engine)
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+mot_de_passe_encode = urllib.parse.quote_plus(MOT_DE_PASSE_BRUT)
 
-# 3. Fonction pour initialiser la base de données (Crée les tables si elles n'existent pas)
+if mot_de_passe_encode:
+    DATABASE_URL = f"mysql+pymysql://{UTILISATEUR}:{mot_de_passe_encode}@localhost:3306/{NOM_BASE_DE_DONNEES}"
+else:
+    DATABASE_URL = f"mysql+pymysql://{UTILISATEUR}@localhost:3306/{NOM_BASE_DE_DONNEES}"
+
+engine = create_engine(DATABASE_URL, echo=False)
+
 def init_db_tables():
-    SQLModel.metadata.create_workbook = SQLModel.metadata.create_all(engine)
+    print("📡 Connexion au serveur local MySQL (phpMyAdmin) en cours...")
+    from app.database.models import Apprenant, Secteur, Filiere, Metier, Etablissement, DemandeTitre
+    
+    SQLModel.metadata.create_all(engine)
+    print("✅ Toutes les tables de nomenclatures et de registres ont été injectées avec succès dans MySQL !")
 
-# 4. Dépendance FastAPI pour ouvrir/fermer une session propre à chaque requête API
+
 def get_db_session():
     with Session(engine) as session:
         yield session
