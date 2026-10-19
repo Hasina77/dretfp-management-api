@@ -5,6 +5,7 @@ from typing import List, Optional, Any
 from datetime import datetime
 from app.database.config import get_db_session
 from app.database.models import DemandeTitre, Apprenant
+from sqlalchemy import inspect
 
 router = APIRouter()
 
@@ -13,6 +14,7 @@ class DemandeCreate(BaseModel):
     nom_complet: Any
     type_document: Any
     centre_examen: Optional[Any] = ""
+    statut: Optional[Any] = "EN_COURS"
 
 class DemandeTransfertIn(BaseModel):
     im_apprenant: Any
@@ -80,7 +82,7 @@ def creer_nouvelle_demande_administrative(demande_in: DemandeCreate, db: Session
             "nom_complet": nom_propre,
             "type_document": type_propre,
             "centre_examen": centre_propre,
-            "statut": "EN_COURS",
+            "statut": str(demande_in.statut).strip().upper() if hasattr(demande_in, 'statut') and demande_in.statut else "EN_TRAITEMENT",
             "date_depot": datetime.now().strftime("%d/%m/%Y")
         }
         colonnes_finales = [c for c in toutes_les_valeurs.keys() if c.lower().strip() in colonnes_reelles]
@@ -220,58 +222,105 @@ def creer_demande_depuis_flux_enligne(demande_in: DemandeTransfertIn, db: Sessio
     db.refresh(nouvelle_demande)
     return {"status": "success", "data": nouvelle_demande}
 
-
 @router.post("/recevoir-enligne", status_code=status.HTTP_201_CREATED)
 def recevoir_demande_depuis_portail_public(demande_in: DemandeTransfertIn, db: Session = Depends(get_db_session)):
     
     im_propre = str(demande_in.im_apprenant).strip()
-    type_propre = str(demande_in.type_document).strip().upper()
+    nom_saisi = str(demande_in.nom_apprenant).strip().upper()
 
-    conflit = db.exec(select(DemandeTitre).where(
-        (DemandeTitre.im_apprenant == im_propre) & 
-        (DemandeTitre.type_document == type_propre)
-    )).first()
-    
-    if conflit:
+    query_apprenant = text("""
+        SELECT etablissement_id, nom_apprenant, prenom_apprenant 
+        FROM apprenants 
+        WHERE im_apprenant = :im
+    """)
+    apprenant_profil = db.execute(query_apprenant, {"im": im_propre}).first()
+    if not apprenant_profil:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="⚠️ Une demande en ligne pour ce matricule et ce type de document est déjà enregistrée."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"❌ Rejet : Le numéro matricule '{im_propre}' n'existe pas dans le registre officiel des diplômés."
         )
 
-    prenom_part = f" {demande_in.prenom_apprenant}" if demande_in.prenom_apprenant else ""
-    nom_complet_calcule = f"{str(demande_in.nom_apprenant).upper()}{prenom_part}"
+    try:
+        profil_dict = apprenant_profil._asdict()
+        id_etablissement_candidat = profil_dict.get("etablissement_id")
+        nom_reel_bdd = str(profil_dict.get("nom_apprenant", "")).strip().upper()
+        prenom_eleve_brut = str(profil_dict.get("prenom_apprenant", "")).strip()
+    except Exception:
+        id_etablissement_candidat = apprenant_profil[0]
+        nom_reel_bdd = str(apprenant_profil[1]).strip().upper()
+        prenom_eleve_brut = str(apprenant_profil[2]).strip() if apprenant_profil[2] else ""
+
+    if nom_saisi not in nom_reel_bdd and nom_reel_bdd not in nom_saisi:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="❌ Rejet : Les renseignements fournis (Nom et Matricule) ne correspondent à aucun profil valide."
+        )
+
+    type_propre = str(demande_in.type_document).strip().upper()
+    verif_query = text("SELECT id_demande FROM demandes_titres WHERE im_apprenant = :im AND type_document = :type_doc")
+    existe = db.execute(verif_query, {"im": im_propre, "type_doc": type_propre}).first()
+    
+    if existe:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="⚠️ Une demande en ligne pour ce titre est déjà enregistrée et en cours d'instruction."
+        )
+
+    prenom_part = f" {prenom_eleve_brut}" if prenom_eleve_brut else ""
+    nom_complet_calcule = f"{nom_reel_bdd}{prenom_part}".strip().upper()
+
+    nom_vrai_centre = None
+    if id_etablissement_candidat:
+        try:
+            query_etab = text("""
+                SELECT nom_etablissement 
+                FROM etablissements 
+                WHERE id_etablissement = :id_etab
+            """)
+            etab_db = db.execute(query_etab, {"id_etab": id_etablissement_candidat}).first()
+            if etab_db:
+                try:
+                    nom_vrai_centre = str(etab_db._asdict().get("nom_etablissement")).strip().upper()
+                except Exception:
+                    nom_vrai_centre = str(etab_db[0]).strip().upper()
+        except Exception as etab_err:
+            print(f"⚠️ Erreur recherche établissement : {etab_err}")
+
+    if not nom_vrai_centre:
+        nom_vrai_centre = "CENTRE REGIONAL DRETFP"
 
     try:
-        inspect_query = text("SHOW COLUMNS FROM demandes_titres")
-        resultats_colonnes = db.execute(inspect_query).all()
-        colonnes_existantes = [col[0] for col in resultats_colonnes]
+        import sqlalchemy
+        inspecteur = sqlalchemy.inspect(db.bind)
+        colonnes_reelles = [col["name"].lower().strip() for col in inspecteur.get_columns("demandes_titres")]
         
         valeurs_possibles = {
             "im_apprenant": im_propre,
-            "nom_complet": nom_complet_calcule.strip().upper(),
-            "session": int(demande_in.session) if demande_in.session else datetime.now().year,
+            "nom_complet": nom_complet_calcule,
+            "session": int(demande_in.session) if demande_in.session else 2026,
             "type_document": type_propre,
+            "centre_examen": nom_vrai_centre,
             "statut": "EN_ATTENTE",
             "date_depot": datetime.now().strftime("%d/%m/%Y")
         }
         
-        colonnes_finales = [c for c in valeurs_possibles.keys() if c in colonnes_existantes]
+        colonnes_finales = [c for c in valeurs_possibles.keys() if c.lower().strip() in colonnes_reelles]
         champs_sql = ", ".join(colonnes_finales)
         parametres_sql = ", ".join([f":{c}" for c in colonnes_finales])
         
-        requete_sql_dynamique = text(f"INSERT INTO demandes_titres ({champs_sql}) VALUES ({parametres_sql})")
+        requete_brute = text(f"INSERT INTO demandes_titres ({champs_sql}) VALUES ({parametres_sql})")
         params_execution = {c: valeurs_possibles[c] for c in colonnes_finales}
         
-        db.execute(requete_sql_dynamique, params_execution)
+        db.execute(requete_brute, params_execution)
         db.commit()
-        return {"status": "success", "message": "Demande en ligne stockée avec succès !"}
+        return {"status": "success", "message": f"Demande en ligne validée avec succès pour l'établissement : {nom_vrai_centre}"}
         
     except Exception as e:
         db.rollback()
-        print(f"❌ Crash SQL Détecté : {e}")
+        print(f"❌ Défaillance critique lors du stockage de la demande en ligne : {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur technique de stockage en ligne : {str(e)}"
+            detail=f"Erreur d'écriture BDD : {str(e)}"
         )
 
 @router.put("/imprimer/{id_demande}", status_code=status.HTTP_200_OK)
@@ -316,4 +365,97 @@ def valider_et_cloturer_impression_titre(id_demande: int, db: Session = Depends(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur serveur MySQL lors de l'impression : {str(e)}"
+        )
+    
+@router.put("/modifier/{id_demande}", status_code=status.HTTP_200_OK)
+def modifier_statut_ou_contenu_demande(id_demande: int, demande_in: DemandeCreate, db: Session = Depends(get_db_session)):
+    try:
+        verif_query = text("SELECT id_demande FROM demandes_titres WHERE id_demande = :id_dem")
+        existe = db.execute(verif_query, {"id_dem": id_demande}).first()
+        
+        if not existe:
+            raise HTTPException(status_code=404, detail="⚠️ Cette demande n'existe pas dans MySQL.")
+
+        maj_query = text("""
+            UPDATE demandes_titres 
+            SET statut = :statut,
+                nom_complet = :nom,
+                centre_examen = :centre
+            WHERE id_demande = :id_dem
+        """)
+        
+        db.execute(maj_query, {
+            "statut": str(demande_in.statut).strip().upper() if demande_in.statut else "OBTENU",
+            "nom": str(demande_in.nom_complet).strip().upper(),
+            "centre": str(demande_in.centre_examen).strip().upper() if demande_in.centre_examen else "LTP AMBOSITRA",
+            "id_dem": id_demande
+        })
+
+        try:
+            maj_app_query = text("""
+                UPDATE apprenants 
+                SET progression = :statut
+                WHERE im_apprenant = :im
+            """)
+            db.execute(maj_app_query, {
+                "statut": str(demande_in.statut).strip().upper() if demande_in.statut else "OBTENU",
+                "im": str(demande_in.im_apprenant).strip()
+            })
+        except Exception as app_err:
+            print(f"⚠️ Progression apprenant non mise à jour : {app_err}")
+
+        db.commit()
+        return {"status": "success", "message": "Demande mise à jour avec succès dans MySQL !"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Crash PUT modifier_demande : {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur serveur d'écriture : {str(e)}"
+        )
+        
+@router.put("/changer-statut-diplome/{id_demande}", status_code=status.HTTP_200_OK)
+def changer_statut_exclusif_diplome(id_demande: int, statut_cible: str, db: Session = Depends(get_db_session)):
+    try:
+        statut_propre = str(statut_cible).strip().upper()
+        
+        verif_query = text("SELECT im_apprenant FROM demandes_titres WHERE id_demande = :id_dem")
+        existe = db.execute(verif_query, {"id_dem": id_demande}).first()
+        
+        if not existe:
+            raise HTTPException(status_code=404, detail="⚠️ Demande introuvable dans MySQL.")
+            
+        im_candidat = existe[0]
+
+        maj_query = text("""
+            UPDATE demandes_titres 
+            SET statut = :statut 
+            WHERE id_demande = :id_dem
+        """)
+        db.execute(maj_query, {"statut": statut_propre, "id_dem": id_demande})
+
+        try:
+            maj_app_query = text("""
+                UPDATE apprenants 
+                SET progression = :statut 
+                WHERE im_apprenant = :im
+            """)
+            db.execute(maj_app_query, {"statut": statut_propre, "im": im_candidat})
+        except Exception as app_err:
+            print(f"⚠️ Ignoré : Synchronisation progression apprenant : {app_err}")
+
+        db.commit()
+        return {"status": "success", "message": f"Statut basculé vers {statut_propre} avec succès !"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Défaillance PUT changer-statut-diplome : {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur d'écriture MySQL : {str(e)}"
         )
