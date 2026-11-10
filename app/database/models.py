@@ -6,7 +6,7 @@ class Apprenant(SQLModel, table=True):
     __tablename__ = "apprenants"
 
     id_apprenant: Optional[int] = Field(default=None, primary_key=True)
-    im_apprenant: int = Field(unique=True, index=True)
+    im_apprenant: str = Field(unique=True, index=True)
     nom_apprenant: str
     prenom_apprenant: str
     date_naiss: str
@@ -87,3 +87,25 @@ class Examen(SQLModel, table=True):
     id_examen: Optional[int] = Field(default=None, primary_key=True)
     nom_exam: str
     description_exam: Optional[str] = None  
+
+class ChefCentre(SQLModel, table=True):
+    __tablename__ = "chefs_centre"
+
+    id_chefcentre: Optional[int] = Field(default=None, primary_key=True)
+    nom_chefcentre: str
+    prenom_chefcentre: Optional[str] = Field(default=None)
+    username: str = Field(unique=True, index=True)
+    tel_chefcentre: Optional[str] = Field(default=None)
+    mail_chefcentre: Optional[str] = Field(default=None)
+    id_etablissement: int = Field(index=True)
+
+
+class NoteApprenant(SQLModel, table=True):
+    __tablename__ = "notes_apprenants"
+    id_note: Optional[int] = Field(default=None, primary_key=True)
+    apprenant_id: int = Field(foreign_key="apprenants.id_apprenant", index=True)
+    note_theorique: float = Field(default=0.0)
+    note_pratique: float = Field(default=0.0)
+    note_stage: Optional[float] = Field(default=None)
+    moyenne_generale: float = Field(default=0.0)
+    statut_deliberation: str = Field(default="En attente")

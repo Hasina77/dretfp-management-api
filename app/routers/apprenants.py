@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, status, Depends
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database.config import get_db_session
 from app.database.models import Apprenant
+import re
 
 router = APIRouter()
 
@@ -24,6 +25,7 @@ class ApprenantExcelIn(BaseModel):
 
 class PaquetImportExcel(BaseModel):
     apprenants: List[ApprenantExcelIn]
+
 
 class ApprenantCreate(BaseModel):
     im_apprenant: str
@@ -58,34 +60,50 @@ def importer_masse_excel(paquet: PaquetImportExcel, db: Session = Depends(get_db
     liste_matricules_doublons = []
 
     for élève in paquet.apprenants:
-        critere_unicite = select(Apprenant).where(Apprenant.im_apprenant == élève.im_apprenant)
+        im_propre = str(élève.im_apprenant).strip().upper()
+        
+        pattern_matricule = r"^.{3}-\d{4}-.{3}$"
+        if not re.match(pattern_matricule, im_propre):
+            continue
+
+        critere_unicite = select(Apprenant).where(Apprenant.im_apprenant == im_propre)
         apprenant_existant = db.exec(critere_unicite).first()
 
         if apprenant_existant:
             compteur_doublons += 1
-            liste_matricules_doublons.append(élève.im_apprenant)
+            liste_matricules_doublons.append(im_propre)
             continue 
 
         nouvel_apprenant = Apprenant(
-            im_apprenant=élève.im_apprenant,
-            nom_apprenant=élève.nom_apprenant.upper(), 
-            prenom_apprenant=élève.prenom_apprenant,
-            date_naiss=élève.date_naiss,
-            lieu_naiss=élève.lieu_naiss,
-            examen_id=élève.examen_id.upper(),
-            etablissement_id=élève.etablissement_id,
-            secteur_id=élève.secteur_id,
-            filiere_id=élève.filiere_id,
-            metier_id=élève.metier_id,
-            session=élève.session,
-            mention=élève.mention,
-            progression=élève.progression
+            im_apprenant=im_propre,
+            nom_apprenant=str(élève.nom_apprenant).strip().upper(), 
+            prenom_apprenant=str(élève.prenom_apprenant).strip() if élève.prenom_apprenant else "",
+            date_naiss=str(élève.date_naiss).strip(),
+            lieu_naiss=str(élève.lieu_naiss).strip().upper() if élève.lieu_naiss else "INCONNU",
+            
+            examen_id=int(élève.examen_id) if str(élève.examen_id).isdigit() else 1,
+            etablissement_id=int(élève.etablissement_id) if élève.etablissement_id else 1,
+            secteur_id=int(élève.secteur_id) if élève.secteur_id else 1,
+            filiere_id=int(élève.filiere_id) if élève.filiere_id else 1,
+            metier_id=int(élève.metier_id) if élève.metier_id else 1,
+            
+            session=int(élève.session) if élève.session else 2026,
+            mention=str(élève.mention).strip() if élève.mention else "Passable",
+            progression=str(élève.progression).strip() if élève.progression else "AUCUNE_DEMANDE"
         )
         
         db.add(nouvel_apprenant)
         compteur_insertions += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Erreur lors du commit bulk Excel dans MySQL : {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Impossible de valider l'écriture de masse dans WampServer : {str(e)}"
+        )
 
     return {
         "status": "success",
@@ -95,12 +113,23 @@ def importer_masse_excel(paquet: PaquetImportExcel, db: Session = Depends(get_db
             "enregistrements_bdd": compteur_insertions,
             "doublons_ignores": compteur_doublons
         },
-        "details_doublons": liste_matricules_doublons
+        "details_doublons": list(set(liste_matricules_doublons))
     }
 
 @router.post("/creer", status_code=status.HTTP_201_CREATED)
 def creer_nouvel_apprenant(apprenant_in: ApprenantCreate, db: Session = Depends(get_db_session)):
-    existe_deja = db.exec(select(Apprenant).where(Apprenant.im_apprenant == apprenant_in.im_apprenant)).first()
+    
+    im_propre = str(apprenant_in.im_apprenant).strip().upper()
+    
+    pattern_matricule = r"^.{3}-\d{4}-.{3}$"
+    
+    if not re.match(pattern_matricule, im_propre):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"❌ Structure invalide : Le matricule '{im_propre}' ne respecte pas le format obligatoire XXX-0000-XXX (4 chiffres au milieu)."
+        )
+
+    existe_deja = db.exec(select(Apprenant).where(Apprenant.im_apprenant == im_propre)).first()
     if existe_deja:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,30 +137,39 @@ def creer_nouvel_apprenant(apprenant_in: ApprenantCreate, db: Session = Depends(
         )
 
     nouvel_apprenant = Apprenant(
-        im_apprenant=apprenant_in.im_apprenant,
-        nom_apprenant=apprenant_in.nom_apprenant,
-        prenom_apprenant=apprenant_in.prenom_apprenant,
+        im_apprenant=im_propre,  
+        nom_apprenant=str(apprenant_in.nom_apprenant).strip().upper(),
+        prenom_apprenant=str(apprenant_in.prenom_apprenant).strip() if apprenant_in.prenom_apprenant else "",
         date_naiss=apprenant_in.date_naiss,
-        lieu_naiss=apprenant_in.lieu_naiss,
-        examen_id=apprenant_in.examen_id,
-        session=apprenant_in.session,
-        mention=apprenant_in.mention,
+        lieu_naiss=str(apprenant_in.lieu_naiss).strip().upper() if apprenant_in.lieu_naiss else "INCONNU",
+        examen_id=str(apprenant_in.examen_id).strip().upper() if apprenant_in.examen_id else "CAP",
+        session=int(apprenant_in.session) if apprenant_in.session else 2026,
+        mention=str(apprenant_in.mention).strip() if apprenant_in.mention else "Passable",
         etablissement_id=apprenant_in.etablissement_id,
         secteur_id=apprenant_in.secteur_id,
         filiere_id=apprenant_in.filiere_id,
         metier_id=apprenant_in.metier_id,
-        progression=apprenant_in.progression
+        progression=str(apprenant_in.progression).strip() if apprenant_in.progression else "AUCUNE_DEMANDE"
     )
     
-    db.add(nouvel_apprenant)
-    db.commit()
-    db.refresh(nouvel_apprenant)
+    try:
+        db.add(nouvel_apprenant)
+        db.commit()
+        db.refresh(nouvel_apprenant)
+        
+        return {
+            "status": "success",
+            "message": "Candidat enregistré avec succès dans la base décentralisée !",
+            "data": nouvel_apprenant
+        }
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Échec d'écriture MySQL de l'apprenant : {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur fatale d'écriture BDD : {str(e)}"
+        )
     
-    return {
-        "status": "success",
-        "message": "Candidat enregistré avec succès dans la base décentralisée !",
-        "data": nouvel_apprenant
-    }
 @router.delete("/supprimer/{id_apprenant}", status_code=status.HTTP_200_OK)
 def supprimer_apprenant_du_registre(id_apprenant: int, db: Session = Depends(get_db_session)):
     apprenant_cible = db.get(Apprenant, id_apprenant)
@@ -178,3 +216,19 @@ def modifier_renseignements_apprenant(im_apprenant: str, apprenant_in: Apprenant
     
     return {"status": "success", "message": "Mise à jour SQLite validée !"}
 
+@router.get("/notifications-attente", status_code=status.HTTP_200_OK)
+def compter_notifications_apprenants_en_attente(db: Session = Depends(get_db_session)):
+    """
+    Retourne le nombre total d'apprenants envoyés à distance par 
+    les chefs de centre sur le terrain et en attente de validation.
+    """
+    # On compte les apprenants ayant le statut spécifique d'importation décentralisée
+    requete = select(func.count(Apprenant.id_apprenant)).where(
+        Apprenant.progression == "EN_ATTENTE_VALIDATION"
+    )
+    total_en_attente = db.exec(requete).one()
+    
+    return {
+        "notifications_count": total_en_attente,
+        "statut": "success"
+    }

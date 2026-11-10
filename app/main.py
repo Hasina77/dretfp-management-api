@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel
+from contextlib import asynccontextmanager
 
 from app.routers import (
     auth, 
@@ -10,10 +11,19 @@ from app.routers import (
     etablissements, 
     secteurs, 
     filieres, 
-    metiers
+    metiers,
+    chefs
 )
 
-from app.database.config import init_db_tables, engine
+from app.database.config import init_db_tables
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("📡 Connexion au serveur local de la DRETFP Amoron'i Mania en cours...")
+    init_db_tables() 
+    print("🚀 Base de données MySQL (phpMyAdmin) initialisée et connectée avec succès !")
+    yield
+    print("🛑 Arrêt du serveur de la DRETFP.")
 
 app = FastAPI(
     title="API Système d'Information Intégré - DRETFP",
@@ -35,7 +45,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,     
+    allow_origins=["*"],     
     allow_credentials=True,   
     allow_methods=["*"],         
     allow_headers=["*"],
@@ -56,3 +66,4 @@ app.include_router(etablissements.router, prefix="/api/etablissements", tags=["G
 app.include_router(secteurs.router, prefix="/api/secteurs", tags=["Gestion Secteurs"])
 app.include_router(filieres.router, prefix="/api/filieres", tags=["Gestion Filières"])
 app.include_router(metiers.router, prefix="/api/metiers", tags=["Gestion Métiers"])
+app.include_router(chefs.router, prefix="/api/chefs-centre", tags=["Chefs de Centre"])

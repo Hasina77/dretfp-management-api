@@ -16,7 +16,7 @@ engine = create_engine(DATABASE_URL, echo=False)
 
 def init_db_tables():
     print("📡 Connexion au serveur local MySQL (phpMyAdmin) en cours...")
-    from app.database.models import Apprenant, Secteur, Filiere, Metier, Etablissement, DemandeTitre
+    from app.database.models import Apprenant, Secteur, Filiere, Metier, Etablissement, DemandeTitre, ChefCentre, Examen 
     
     SQLModel.metadata.create_all(engine)
     print("✅ Toutes les tables de nomenclatures et de registres ont été injectées avec succès dans MySQL !")

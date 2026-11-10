@@ -6,6 +6,7 @@ from datetime import datetime
 from app.database.config import get_db_session
 from app.database.models import DemandeTitre, Apprenant
 from sqlalchemy import inspect
+import re 
 
 router = APIRouter()
 
@@ -458,4 +459,18 @@ def changer_statut_exclusif_diplome(id_demande: int, statut_cible: str, db: Sess
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur d'écriture MySQL : {str(e)}"
+        )
+
+@router.post("/recevoir-enligne", status_code=status.HTTP_201_CREATED)
+def recevoir_demande_depuis_portail_public(demande_in: DemandeTransfertIn, db: Session = Depends(get_db_session)):
+    
+    im_propre = str(demande_in.im_apprenant).strip().upper()
+    nom_saisi = str(demande_in.nom_apprenant).strip().upper()
+
+    pattern_matricule = r"^.{3}-\d{4}-.{3}$"
+    
+    if not re.match(pattern_matricule, im_propre):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="❌ Rejet : Le format du numéro matricule est invalide. Structure exigée : XXX-0000-XXX (4 chiffres au milieu)."
         )

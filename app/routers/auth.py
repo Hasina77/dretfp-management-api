@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlmodel import Session, select
 from app.database.config import get_db_session
-from app.database.models import User
+from app.database.models import User, ChefCentre
 from app.core.security import get_password_hash, verify_password, create_access_token
 from typing import List, Optional
 
@@ -14,6 +14,11 @@ class UserRegister(BaseModel):
     password: str
     role: str
     centre_affectation: str
+
+class ChefRegisterIn(BaseModel):
+    username: str
+    email: EmailStr
+    password: str    
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_user(user_in: UserRegister, db: Session = Depends(get_db_session)):
@@ -81,3 +86,33 @@ def lister_tous_les_utilisateurs(db: Session = Depends(get_db_session)):
     liste_utilisateurs = db.exec(requete_sql).all()
     
     return liste_utilisateurs
+
+@router.post("/register-chef", status_code=status.HTTP_201_CREATED)
+def inscrire_compte_chef_de_centre(info_in: ChefRegisterIn, db: Session = Depends(get_db_session)):
+    # 1. Vérifier si le username est répertorié dans la liste officielle des chefs de centre
+    chef_officiel = db.exec(select(ChefCentre).where(ChefCentre.username == info_in.username)).first()
+    if not chef_officiel:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="❌ Accès refusé : Vous n'êtes pas autorisé à créer un compte. Contactez l'administrateur de la DRETFP."
+        )
+    
+    # 2. Vérifier si un compte d'accès utilisateur existe déjà pour cet e-mail
+    compte_existant = db.exec(select(User).where(User.email == info_in.email)).first()
+    if compte_existant:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="⚠️ Un compte utilisateur est déjà associé à cette adresse e-mail."
+        )
+    
+    # 3. Création du compte utilisateur rattaché avec le rôle AGENT_CENTRE
+    nouvel_utilisateur = User(
+        email=info_in.email,
+        password_hashed=get_password_hash(info_in.password), # Ta fonction crypto existante
+        role="AGENT_CENTRE",
+        centre_affectation=str(chef_officiel.id_etablissement)
+    )
+    
+    db.add(nouvel_utilisateur)
+    db.commit()
+    return {"status": "success", "message": "Compte de Chef de Centre créé avec succès !"}
