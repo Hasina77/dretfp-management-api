@@ -1,5 +1,5 @@
 from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
 
 class Apprenant(SQLModel, table=True):
@@ -109,3 +109,35 @@ class NoteApprenant(SQLModel, table=True):
     note_stage: Optional[float] = Field(default=None)
     moyenne_generale: float = Field(default=0.0)
     statut_deliberation: str = Field(default="En attente")
+
+class UtilisateurAdministration(SQLModel, table=True):
+    __tablename__ = "utilisateurs_administration"
+    
+    id_admin: Optional[int] = Field(default=None, primary_key=True, index=True)
+    email_professionnel: str = Field(unique=True, index=True, nullable=False)
+    password_hashed: str = Field(nullable=False)
+    role_applicatif: str = Field(default="ADMIN_DRETFP")
+    date_creation: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CompteChefTerrain(SQLModel, table=True):
+    __tablename__ = "comptes_chefs_terrain"
+    
+    id_compte_chef: Optional[int] = Field(default=None, primary_key=True, index=True)
+    username_officiel: str = Field(unique=True, index=True, nullable=False)
+    email_liaison: str = Field(unique=True, index=True, nullable=False)
+    password_hashed: str = Field(nullable=False)
+    etablissement_id: int = Field(index=True, nullable=False)
+    role_applicatif: str = Field(default="AGENT_CENTRE")
+    statut_compte: str = Field(default="ACTIF")
+    date_activation: datetime = Field(default_factory=datetime.utcnow)
+
+class HistoriqueEvenement(SQLModel, table=True):
+    __tablename__ = "historique_evenements"
+    
+    id_historique: Optional[int] = Field(default=None, primary_key=True, index=True)
+    acteur: str = Field(nullable=False)
+    role_acteur: str = Field(nullable=False)
+    action_effectuee: str = Field(nullable=False)
+    details: Optional[str] = Field(default=None)
+    date_evenement: datetime = Field(default_factory=datetime.utcnow)

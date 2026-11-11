@@ -12,7 +12,8 @@ from app.routers import (
     secteurs, 
     filieres, 
     metiers,
-    chefs
+    chefs,
+    historique 
 )
 
 from app.database.config import init_db_tables
@@ -67,3 +68,4 @@ app.include_router(secteurs.router, prefix="/api/secteurs", tags=["Gestion Secte
 app.include_router(filieres.router, prefix="/api/filieres", tags=["Gestion Filières"])
 app.include_router(metiers.router, prefix="/api/metiers", tags=["Gestion Métiers"])
 app.include_router(chefs.router, prefix="/api/chefs-centre", tags=["Chefs de Centre"])
+app.include_router(historique.router, prefix="/api/historique", tags=["Historique"])
