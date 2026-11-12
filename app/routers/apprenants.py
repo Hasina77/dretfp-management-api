@@ -115,6 +115,7 @@ def importer_masse_excel(paquet: PaquetImportExcel, db: Session = Depends(get_db
         },
         "details_doublons": list(set(liste_matricules_doublons))
     }
+    
 
 @router.post("/creer", status_code=status.HTTP_201_CREATED)
 def creer_nouvel_apprenant(apprenant_in: ApprenantCreate, db: Session = Depends(get_db_session)):
@@ -222,7 +223,6 @@ def compter_notifications_apprenants_en_attente(db: Session = Depends(get_db_ses
     Retourne le nombre total d'apprenants envoyés à distance par 
     les chefs de centre sur le terrain et en attente de validation.
     """
-    # On compte les apprenants ayant le statut spécifique d'importation décentralisée
     requete = select(func.count(Apprenant.id_apprenant)).where(
         Apprenant.progression == "EN_ATTENTE_VALIDATION"
     )
