@@ -28,6 +28,10 @@ class AdminResetIn(BaseModel):
     new_password: str
     secret_key: str
 
+class ChangeAdminPasswordIn(BaseModel):
+    email: EmailStr
+    ancien_password: str
+    nouveau_password: str
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_admin(user_in: UserRegister, db: Session = Depends(get_db_session)):
@@ -146,3 +150,25 @@ def reinitialiser_mot_de_passe_admin(data: AdminResetIn, db: Session = Depends(g
     db.add(admin)
     db.commit()
     return {"status": "success", "message": "Mot de passe administrateur réinitialisé avec succès."}
+
+
+@router.put("/change-admin-password", status_code=status.HTTP_200_OK)
+def modifier_mot_de_passe_admin(data: ChangeAdminPasswordIn, db: Session = Depends(get_db_session)):
+    admin = db.exec(
+        select(UtilisateurAdministration).where(UtilisateurAdministration.email_professionnel == data.email.strip())
+    ).first()
+    
+    if not admin:
+        raise HTTPException(status_code=404, detail="Compte administrateur introuvable.")
+        
+    if not verify_password(data.ancien_password, admin.password_hashed):
+        raise HTTPException(status_code=400, detail="L'ancien mot de passe saisi est incorrect.")
+        
+    if len(data.nouveau_password) < 6:
+        raise HTTPException(status_code=400, detail="Le nouveau mot de passe doit contenir au moins 6 caractères.")
+        
+    admin.password_hashed = get_password_hash(data.nouveau_password)
+    db.add(admin)
+    db.commit()
+    
+    return {"status": "success", "message": "Mot de passe mis à jour avec succès dans la base centrale."}

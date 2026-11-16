@@ -5,10 +5,8 @@ from typing import List, Optional
 from app.database.config import get_db_session
 from app.database.models import ChefCentre, Etablissement
 
-# Initialisation du routeur sans préfixe dur (déjà géré centralement dans main.py)
 router = APIRouter()
 
-# --- SCHÉMAS DE VALIDATION PYDANTIC (DTO) ---
 
 class ChefCentreCreate(BaseModel):
     nom_chefcentre: str
@@ -27,23 +25,27 @@ class ChefCentreResponse(BaseModel):
     mail_chefcentre: Optional[str]
     id_etablissement: int
 
-    class Config:
-        from_attributes = True
+class ChefCentreUpdateIn(BaseModel):
+    nom_chefcentre: Optional[str] = None
+    prenom_chefcentre: Optional[str] = None
+    mail_chefcentre: Optional[str] = None
+    tel_chefcentre: Optional[str] = None
+    username: Optional[str] = None
+
+class Config:
+    from_attributes = True
 
 
-# --- POINTS DE TERMINAISON (ENDPOINTS) ---
 
 @router.post("/enregistrer", response_model=ChefCentreResponse, status_code=status.HTTP_201_CREATED)
 def enregistrer_chef_centre(chef_in: ChefCentreCreate, db: Session = Depends(get_db_session)):
     """
     Enregistre un nouveau Chef de Centre dans le système après vérification des contraintes d'intégrité.
     """
-    # 1. Nettoyage et normalisation des chaînes de caractères
     username_propre = chef_in.username.strip().lower()
     nom_propre = chef_in.nom_chefcentre.strip().upper()
     prenom_propre = chef_in.prenom_chefcentre.strip() if chef_in.prenom_chefcentre else None
 
-    # 2. Vérification d'unicité du nom d'utilisateur (username)
     critere_unicite = select(ChefCentre).where(ChefCentre.username == username_propre)
     username_existant = db.exec(critere_unicite).first()
     if username_existant:
@@ -52,7 +54,6 @@ def enregistrer_chef_centre(chef_in: ChefCentreCreate, db: Session = Depends(get
             detail=f"⚠️ Conflit : Le nom d'utilisateur '{username_propre}' est déjà attribué à un autre responsable."
         )
 
-    # 3. Vérification de l'existence de l'établissement d'affectation ciblé
     etablissement_existant = db.get(Etablissement, chef_in.id_etablissement)
     if not etablissement_existant:
         raise HTTPException(
@@ -60,7 +61,6 @@ def enregistrer_chef_centre(chef_in: ChefCentreCreate, db: Session = Depends(get
             detail=f"❌ Erreur référentielle : L'établissement avec l'identifiant ID {chef_in.id_etablissement} n'existe pas."
         )
 
-    # 4. Instanciation et insertion du nouveau modèle métier
     nouveau_chef = ChefCentre(
         nom_chefcentre=nom_propre,
         prenom_chefcentre=prenom_propre,
@@ -105,7 +105,6 @@ def modifier_fiche_chef_centre(id_chefcentre: int, chef_in: ChefCentreCreate, db
             detail="⚠️ Modification impossible : Ce chef de centre est introuvable dans le répertoire."
         )
 
-    # 1. Validation de l'unicité du username en cas de modification de celui-ci
     username_propre = chef_in.username.strip().lower()
     conflit_username = db.exec(
         select(ChefCentre).where(ChefCentre.username == username_propre, ChefCentre.id_chefcentre != id_chefcentre)
@@ -116,7 +115,6 @@ def modifier_fiche_chef_centre(id_chefcentre: int, chef_in: ChefCentreCreate, db
             detail=f"⚠️ Le nom d'utilisateur '{username_propre}' appartient déjà à un autre compte."
         )
 
-    # 2. Validation de l'existence du nouvel établissement d'affectation
     etablissement_existant = db.get(Etablissement, chef_in.id_etablissement)
     if not etablissement_existant:
         raise HTTPException(
@@ -124,7 +122,6 @@ def modifier_fiche_chef_centre(id_chefcentre: int, chef_in: ChefCentreCreate, db
             detail=f"❌ Établissement d'affectation ID {chef_in.id_etablissement} inexistant."
         )
 
-    # 3. Mutation des propriétés de l'objet persistant
     chef_cible.nom_chefcentre = chef_in.nom_chefcentre.strip().upper()
     chef_cible.prenom_chefcentre = chef_in.prenom_chefcentre.strip() if chef_in.prenom_chefcentre else None
     chef_cible.username = username_propre
@@ -170,3 +167,26 @@ def revoquer_chef_de_centre(id_chefcentre: int, db: Session = Depends(get_db_ses
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur serveur lors de la suppression de la fiche de poste : {str(e)}"
         )
+
+
+@router.put("/chefs-centre/{id_chefcentre}", status_code=status.HTTP_200_OK)
+def modifier_chef_centre(id_chefcentre: int, data: ChefCentreUpdateIn, db: Session = Depends(get_db_session)):
+    chef = db.get(ChefCentre, id_chefcentre)
+    if not chef:
+        raise HTTPException(status_code=404, detail="Chef de centre introuvable.")
+
+    if data.nom_chefcentre is not None:
+        chef.nom_chefcentre = data.nom_chefcentre.strip()
+    if data.prenom_chefcentre is not None:
+        chef.prenom_chefcentre = data.prenom_chefcentre.strip()
+    if data.mail_chefcentre is not None:
+        chef.mail_chefcentre = data.mail_chefcentre.strip()
+    if data.tel_chefcentre is not None:
+        chef.tel_chefcentre = data.tel_chefcentre.strip()
+    if data.username is not None:
+        chef.username = data.username.strip()
+
+    db.add(chef)
+    db.commit()
+    db.refresh(chef)
+    return {"status": "success", "chef": chef}

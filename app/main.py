@@ -1,7 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, Session
 from contextlib import asynccontextmanager
+from pydantic import BaseModel
+from typing import Optional
+from fastapi import Depends, HTTPException
+from app.database.config import get_db_session
+from app.database.models import ChefCentre
 
 from app.routers import (
     auth, 
@@ -17,6 +22,14 @@ from app.routers import (
 )
 
 from app.database.config import init_db_tables
+
+
+class ChefCentreUpdate(BaseModel):
+    nom_chefcentre: Optional[str] = None
+    prenom_chefcentre: Optional[str] = None
+    mail_chefcentre: Optional[str] = None
+    tel_chefcentre: Optional[str] = None
+    username: Optional[str] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -69,3 +82,27 @@ app.include_router(filieres.router, prefix="/api/filieres", tags=["Gestion Fili√
 app.include_router(metiers.router, prefix="/api/metiers", tags=["Gestion M√©tiers"])
 app.include_router(chefs.router, prefix="/api/chefs-centre", tags=["Chefs de Centre"])
 app.include_router(historique.router, prefix="/api/historique", tags=["Historique"])
+
+
+
+@app.put("/api/chefs-centre/{id_chefcentre}")
+def update_chef_centre(id_chefcentre: int, data: ChefCentreUpdate, db: Session = Depends(get_db_session)):
+    chef = db.get(ChefCentre, id_chefcentre)
+    if not chef:
+        raise HTTPException(status_code=404, detail="Chef de centre introuvable.")
+    
+    if data.nom_chefcentre is not None:
+        chef.nom_chefcentre = data.nom_chefcentre.strip()
+    if data.prenom_chefcentre is not None:
+        chef.prenom_chefcentre = data.prenom_chefcentre.strip()
+    if data.mail_chefcentre is not None:
+        chef.mail_chefcentre = data.mail_chefcentre.strip()
+    if data.tel_chefcentre is not None:
+        chef.tel_chefcentre = data.tel_chefcentre.strip()
+    if data.username is not None:
+        chef.username = data.username.strip()
+        
+    db.add(chef)
+    db.commit()
+    db.refresh(chef)
+    return {"status": "success", "chef": chef}
