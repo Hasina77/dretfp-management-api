@@ -5,7 +5,8 @@ from sqlmodel import Session, select, func
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from app.database.config import get_db_session
-from app.database.models import ChefCentre, Etablissement, CompteChefTerrain, Apprenant
+from app.database.models import ChefCentre, Etablissement, CompteChefTerrain, DocumentCentre
+from datetime import datetime
 from fastapi import UploadFile, File, Form
 from app.database.models import DocumentCentre
 
@@ -91,21 +92,21 @@ def lister_tous_les_chefs_de_centre(db: Session = Depends(get_db_session)):
     comptes_actifs = db.exec(select(CompteChefTerrain.username_officiel)).all()
     usernames_connectes = {u.strip().lower() for u in comptes_actifs if u}
 
-    tous_apprenants = db.exec(select(Apprenant)).all()
+    tous_documents = db.exec(select(DocumentCentre)).all()
 
     resultat = []
     for chef in chefs:
         chef_dict = chef.dict()
         chef_dict["est_connecte"] = (chef.username.strip().lower() in usernames_connectes)
 
-        nb_envoyes = sum(
-            1 for app in tous_apprenants 
+        nb_docs = sum(
+            1 for app in tous_documents 
             if getattr(app, "etablissement_id", None) == chef.id_etablissement 
             or getattr(app, "centre_id", None) == chef.id_etablissement
         )
 
-        chef_dict["nb_apprenants_envoyes"] = nb_envoyes
-        chef_dict["a_envoye_donnees"] = (nb_envoyes > 0)
+        chef_dict["nb_apprenants_envoyes"] = nb_docs
+        chef_dict["a_envoye_donnees"] = (nb_docs > 0)
         resultat.append(chef_dict)
 
     return resultat
@@ -297,30 +298,38 @@ async def recevoir_document_chef(
     fichier: UploadFile = File(...),
     db: Session = Depends(get_db_session)
 ):
-    ext = os.path.splitext(fichier.filename)[1].lower()
-    if ext not in [".xlsx", ".xls", ".doc", ".docx", ".pdf"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="Format non autorisé. Seuls les fichiers Excel (.xlsx, .xls), Word (.doc, .docx) et PDF sont acceptés."
+    try:
+        ext = os.path.splitext(fichier.filename)[1].lower()
+        if ext not in [".xlsx", ".xls", ".doc", ".docx", ".pdf"]:
+            raise HTTPException(
+                status_code=400, 
+                detail="Format non autorisé. Seuls Excel, Word et PDF sont acceptés."
+            )
+
+        nom_unique = f"{id_etablissement}_{int(datetime.utcnow().timestamp())}_{fichier.filename}"
+        chemin_complet = os.path.join(UPLOAD_DIR, nom_unique)
+
+        with open(chemin_complet, "wb") as buffer:
+            shutil.copyfileobj(fichier.file, buffer)
+
+        nouveau_doc = DocumentCentre(
+            id_etablissement=id_etablissement,
+            chef_username=chef_username,
+            nom_fichier=fichier.filename,
+            type_fichier=ext.replace(".", "").upper(),
+            chemin_stockage=f"/uploads/documents_centres/{nom_unique}"
         )
-
-    nom_unique = f"{id_etablissement}_{int(datetime.utcnow().timestamp())}_{fichier.filename}"
-    chemin_complet = os.path.join(UPLOAD_DIR, nom_unique)
-
-    with open(chemin_complet, "wb") as buffer:
-        shutil.copyfileobj(fichier.file, buffer)
-
-    nouveau_doc = DocumentCentre(
-        id_etablissement=id_etablissement,
-        chef_username=chef_username,
-        nom_fichier=fichier.filename,
-        type_fichier=ext.replace(".", "").upper(),
-        chemin_stockage=f"/uploads/documents_centres/{nom_unique}"
-    )
-    db.add(nouveau_doc)
-    db.commit()
-    db.refresh(nouveau_doc)
-    return {"status": "success", "document": nouveau_doc}
+        db.add(nouveau_doc)
+        db.commit()
+        db.refresh(nouveau_doc)
+        return {"status": "success", "document": nouveau_doc}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Erreur upload document : {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur serveur : {str(e)}")
+    
 
 @router.get("/documents/{id_etablissement}", status_code=status.HTTP_200_OK)
 def lister_documents_etablissement(id_etablissement: int, db: Session = Depends(get_db_session)):

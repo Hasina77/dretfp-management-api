@@ -1,13 +1,13 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import SQLModel, Session, select
+from sqlmodel import Session, select
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import Depends, HTTPException
 from app.database.config import get_db_session
-from app.database.models import ChefCentre
+from app.database.models import ChefCentre, DocumentCentre
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
@@ -110,3 +110,22 @@ def update_chef_centre(id_chefcentre: int, data: ChefCentreUpdate, db: Session =
     db.commit()
     db.refresh(chef)
     return {"status": "success", "chef": chef}
+
+@app.get("/api/documents/notifications-attente", tags=["Documents"])
+def verifier_notifications_documents(db: Session = Depends(get_db_session)):
+    docs = db.exec(select(DocumentCentre)).all()
+    # Regroupe le nombre de documents par établissement
+    compteur_par_etab = {}
+    for d in docs:
+        compteur_par_etab[d.id_etablissement] = compteur_par_etab.get(d.id_etablissement, 0) + 1
+    return {
+        "total": len(docs),
+        "par_etablissement": compteur_par_etab
+    }
+
+@app.get("/api/documents/{id_etablissement}", tags=["Documents"])
+def lister_documents_par_centre(id_etablissement: int, db: Session = Depends(get_db_session)):
+    statement = select(DocumentCentre).where(
+        DocumentCentre.id_etablissement == id_etablissement
+    ).order_by(DocumentCentre.date_envoi.desc())
+    return db.exec(statement).all()
