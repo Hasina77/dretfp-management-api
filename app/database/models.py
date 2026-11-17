@@ -141,3 +141,14 @@ class HistoriqueEvenement(SQLModel, table=True):
     action_effectuee: str = Field(nullable=False)
     details: Optional[str] = Field(default=None)
     date_evenement: datetime = Field(default_factory=datetime.utcnow)
+
+class DocumentCentre(SQLModel, table=True):
+    __tablename__ = "documents_centres"
+    
+    id_document: Optional[int] = Field(default=None, primary_key=True, index=True)
+    id_etablissement: int = Field(nullable=False)
+    chef_username: str = Field(nullable=False)
+    nom_fichier: str = Field(nullable=False)
+    type_fichier: str = Field(nullable=False)
+    chemin_stockage: str = Field(nullable=False)
+    date_envoi: datetime = Field(default_factory=datetime.utcnow)

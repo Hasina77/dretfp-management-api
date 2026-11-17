@@ -1,12 +1,15 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import SQLModel, Session
+from sqlmodel import SQLModel, Session, select
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import Depends, HTTPException
 from app.database.config import get_db_session
 from app.database.models import ChefCentre
+from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 
 from app.routers import (
     auth, 
@@ -37,12 +40,13 @@ async def lifespan(app: FastAPI):
     init_db_tables() 
     print("🚀 Base de données MySQL (phpMyAdmin) initialisée et connectée avec succès !")
     yield
-    print("🛑 Arrêt du serveur de la DRETFP.")
+    print(" Arrêt du serveur de la DRETFP.")
 
 app = FastAPI(
     title="API Système d'Information Intégré - DRETFP",
     description="Backend robuste pour la gestion décentralisée des examens, nomenclatures et demandes de titres.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 @app.on_event("startup")
