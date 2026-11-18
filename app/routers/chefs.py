@@ -85,6 +85,7 @@ def enregistrer_chef_centre(chef_in: ChefCentreCreate, db: Session = Depends(get
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'insertion : {str(e)}")
 
 
+@router.get("", response_model=List[ChefCentreResponse], status_code=status.HTTP_200_OK)
 @router.get("/liste", response_model=List[ChefCentreResponse], status_code=status.HTTP_200_OK)
 def lister_tous_les_chefs_de_centre(db: Session = Depends(get_db_session)):
     chefs = db.exec(select(ChefCentre).order_by(ChefCentre.id_chefcentre.desc())).all()
