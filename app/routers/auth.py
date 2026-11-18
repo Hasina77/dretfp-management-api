@@ -85,7 +85,8 @@ def inscrire_compte_chef_de_centre(info_in: ChefRegisterIn, db: Session = Depend
         email_liaison=info_in.email,
         password_hashed=get_password_hash(info_in.password), 
         etablissement_id=chef_officiel.id_etablissement,
-        role_applicatif="AGENT_CENTRE"
+        role_applicatif="AGENT_CENTRE",
+        est_en_ligne=True
     )
     
     db.add(nouveau_chef)
@@ -112,12 +113,18 @@ def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         chef_user = db.exec(select(CompteChefTerrain).where(CompteChefTerrain.username_officiel == identifiant.lower())).first()
         
     if chef_user and verify_password(form_data.password, chef_user.password_hashed):
+        chef_user.est_en_ligne = True
+        db.add(chef_user)
+        db.commit()
+        db.refresh(chef_user)
+
         token = create_access_token(subject=chef_user.email_liaison, role=chef_user.role_applicatif)
         return {
             "access_token": token,
             "token_type": "bearer",
             "role": chef_user.role_applicatif,
-            "centre_affectation": str(chef_user.etablissement_id)
+            "centre_affectation": str(chef_user.etablissement_id),
+            "username": chef_user.username_officiel
         }
         
     raise HTTPException(
