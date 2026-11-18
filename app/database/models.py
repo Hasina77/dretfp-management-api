@@ -131,6 +131,7 @@ class CompteChefTerrain(SQLModel, table=True):
     role_applicatif: str = Field(default="AGENT_CENTRE")
     statut_compte: str = Field(default="ACTIF")
     date_activation: datetime = Field(default_factory=datetime.utcnow)
+    est_en_ligne: bool = Field(default=False)
 
 class HistoriqueEvenement(SQLModel, table=True):
     __tablename__ = "historique_evenements"

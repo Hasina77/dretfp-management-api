@@ -9,6 +9,7 @@ from app.database.models import ChefCentre, Etablissement, CompteChefTerrain, Do
 from datetime import datetime
 from fastapi import UploadFile, File, Form
 from app.database.models import DocumentCentre
+from fastapi.responses import FileResponse
 
 router = APIRouter()
 
@@ -32,7 +33,7 @@ class ChefCentreResponse(BaseModel):
     id_etablissement: int
     est_connecte: bool = False
     a_envoye_donnees: bool = False      
-    nb_apprenants_envoyes: int = 0     
+    nb_documents_envoyes: int = 0     
 
     class Config:
         from_attributes = True
@@ -44,6 +45,9 @@ class ChefCentreUpdateIn(BaseModel):
     mail_chefcentre: Optional[str] = None
     tel_chefcentre: Optional[str] = None
     username: Optional[str] = None
+
+class DeconnexionChefIn(BaseModel):
+    username: str
 
 
 @router.post("/enregistrer", response_model=ChefCentreResponse, status_code=status.HTTP_201_CREATED)
@@ -95,18 +99,20 @@ def lister_tous_les_chefs_de_centre(db: Session = Depends(get_db_session)):
 
     tous_documents = db.exec(select(DocumentCentre)).all()
 
+    comptes_en_ligne = db.exec(
+        select(CompteChefTerrain.username_officiel).where(CompteChefTerrain.est_en_ligne == True)
+    ).all()
+    usernames_connectes = {u.strip().lower() for u in comptes_en_ligne if u}
+
     resultat = []
     for chef in chefs:
         chef_dict = chef.dict()
         chef_dict["est_connecte"] = (chef.username.strip().lower() in usernames_connectes)
 
-        nb_docs = sum(
-            1 for app in tous_documents 
-            if getattr(app, "etablissement_id", None) == chef.id_etablissement 
-            or getattr(app, "centre_id", None) == chef.id_etablissement
-        )
+        id_etab_chef = str(chef.id_etablissement).strip()
+        nb_docs = sum(1 for doc in tous_documents if str(doc.id_etablissement).strip() == id_etab_chef)
 
-        chef_dict["nb_apprenants_envoyes"] = nb_docs
+        chef_dict["nb_documents_envoyes"] = nb_docs
         chef_dict["a_envoye_donnees"] = (nb_docs > 0)
         resultat.append(chef_dict)
 
@@ -338,3 +344,56 @@ def lister_documents_etablissement(id_etablissement: int, db: Session = Depends(
         DocumentCentre.id_etablissement == id_etablissement
     ).order_by(DocumentCentre.date_envoi.desc())
     return db.exec(statement).all()
+
+
+@router.get("/telecharger-document/{id_document}", status_code=status.HTTP_200_OK)
+def telecharger_document_centre(id_document: int, db: Session = Depends(get_db_session)):
+    doc = db.get(DocumentCentre, id_document)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document introuvable en base de données.")
+
+    chemin_physique = doc.chemin_stockage.lstrip("/")
+    
+    if not os.path.exists(chemin_physique):
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Le fichier physique est introuvable sur le serveur ({chemin_physique})."
+        )
+
+    return FileResponse(
+        path=chemin_physique,
+        filename=doc.nom_fichier,
+        media_type="application/octet-stream"
+    )
+
+@router.delete("/supprimer-document/{id_document}", status_code=status.HTTP_200_OK)
+def supprimer_document_centre(id_document: int, db: Session = Depends(get_db_session)):
+    doc = db.get(DocumentCentre, id_document)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document introuvable en base de données.")
+
+    chemin_physique = doc.chemin_stockage.lstrip("/")
+    
+    try:
+        if os.path.exists(chemin_physique):
+            os.remove(chemin_physique)
+
+        db.delete(doc)
+        db.commit()
+        return {"status": "success", "message": "Document supprimé avec succès."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la suppression : {str(e)}")
+
+@router.post("/deconnexion", status_code=status.HTTP_200_OK)
+def deconnecter_chef_centre(data: DeconnexionChefIn, db: Session = Depends(get_db_session)):
+    compte = db.exec(
+        select(CompteChefTerrain).where(CompteChefTerrain.username_officiel == data.username.strip().lower())
+    ).first()
+    
+    if compte:
+        compte.est_en_ligne = False
+        db.add(compte)
+        db.commit()
+        
+    return {"status": "success", "message": "Chef de centre déconnecté."}
