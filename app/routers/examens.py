@@ -3,13 +3,25 @@ from sqlmodel import Session, select
 from pydantic import BaseModel
 from typing import List, Optional, Any
 from app.database.config import get_db_session
-from app.database.models import Examen
+from app.database.models import Examen, Matiere
 
 router = APIRouter()
 
 class ExamenCreate(BaseModel):
     nom_exam: Any 
     description_exam: Optional[Any] = ""
+
+class MatiereCreateIn(BaseModel):
+    id_examen: int
+    nom_matiere: str
+    coefficient: int = 1
+    type_epreuve: str = "Écrite"
+
+class MatiereUpdateIn(BaseModel):
+    nom_matiere: Optional[str] = None
+    coefficient: Optional[int] = None
+    type_epreuve: Optional[str] = None
+
 
 
 @router.post("/creer", status_code=status.HTTP_201_CREATED)
@@ -98,3 +110,50 @@ def supprimer_examen(id_examen: int, db: Session = Depends(get_db_session)):
         "status": "success",
         "message": f"L'examen '{examen_cible.nom_exam}' a été retiré définitivement."
     }
+
+
+@router.get("/{id_examen}/matieres", status_code=status.HTTP_200_OK)
+def lister_matieres_examen(id_examen: int, db: Session = Depends(get_db_session)):
+    statement = select(Matiere).where(Matiere.id_examen == id_examen).order_by(Matiere.id_matiere.asc())
+    return db.exec(statement).all()
+
+@router.post("/matieres/ajouter", status_code=status.HTTP_201_CREATED)
+def ajouter_matiere_examen(data: MatiereCreateIn, db: Session = Depends(get_db_session)):
+    nouvelle_matiere = Matiere(
+        id_examen=data.id_examen,
+        nom_matiere=data.nom_matiere.strip(),
+        coefficient=data.coefficient,
+        type_epreuve=data.type_epreuve
+    )
+    db.add(nouvelle_matiere)
+    db.commit()
+    db.refresh(nouvelle_matiere)
+    return nouvelle_matiere
+
+@router.delete("/matieres/{id_matiere}", status_code=status.HTTP_200_OK)
+def supprimer_matiere_examen(id_matiere: int, db: Session = Depends(get_db_session)):
+    matiere = db.get(Matiere, id_matiere)
+    if not matiere:
+        raise HTTPException(status_code=404, detail="Matière introuvable.")
+    db.delete(matiere)
+    db.commit()
+    return {"status": "success"}
+
+
+@router.put("/matieres/{id_matiere}", status_code=status.HTTP_200_OK)
+def modifier_matiere_examen(id_matiere: int, data: MatiereUpdateIn, db: Session = Depends(get_db_session)):
+    matiere = db.get(Matiere, id_matiere)
+    if not matiere:
+        raise HTTPException(status_code=404, detail="Matière introuvable.")
+
+    if data.nom_matiere is not None:
+        matiere.nom_matiere = data.nom_matiere.strip()
+    if data.coefficient is not None:
+        matiere.coefficient = data.coefficient
+    if data.type_epreuve is not None:
+        matiere.type_epreuve = data.type_epreuve
+
+    db.add(matiere)
+    db.commit()
+    db.refresh(matiere)
+    return matiere

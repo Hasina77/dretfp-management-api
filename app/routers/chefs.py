@@ -47,7 +47,8 @@ class ChefCentreUpdateIn(BaseModel):
     username: Optional[str] = None
 
 class DeconnexionChefIn(BaseModel):
-    username: str
+    username: Optional[str] = ""
+    id_etablissement: Optional[int] = None
 
 
 @router.post("/enregistrer", response_model=ChefCentreResponse, status_code=status.HTTP_201_CREATED)
@@ -235,7 +236,7 @@ def envoyer_acces_par_email(data: EnvoiAccesIn):
 La Direction Régionale de l'Enseignement Technique et de la Formation Professionnelle (DRETFP) Amoron'i Mania vous transmet vos accès officiels au portail de saisie :
 
 - Identifiant : {data.username}
-- Lien d'accès : https://dretfp-amoronimania-chef-de-centre.onrender.com
+- Lien d'accès : https://dretfp-amoronimania-chef-de-centre.onrender.com/chef
 
 Cordialement,
 L'Administration Centrale DRETFP Amoron'i Mania."""
@@ -387,13 +388,25 @@ def supprimer_document_centre(id_document: int, db: Session = Depends(get_db_ses
 
 @router.post("/deconnexion", status_code=status.HTTP_200_OK)
 def deconnecter_chef_centre(data: DeconnexionChefIn, db: Session = Depends(get_db_session)):
-    compte = db.exec(
-        select(CompteChefTerrain).where(CompteChefTerrain.username_officiel == data.username.strip().lower())
-    ).first()
-    
+    identifiant = (data.username or "").strip().lower()
+    compte = None
+
+    if identifiant:
+        compte = db.exec(
+            select(CompteChefTerrain).where(
+                (CompteChefTerrain.username_officiel == identifiant) |
+                (CompteChefTerrain.email_liaison == identifiant)
+            )
+        ).first()
+
+    if not compte and data.id_etablissement:
+        compte = db.exec(
+            select(CompteChefTerrain).where(CompteChefTerrain.etablissement_id == data.id_etablissement)
+        ).first()
+
     if compte:
         compte.est_en_ligne = False
         db.add(compte)
         db.commit()
-        
-    return {"status": "success", "message": "Chef de centre déconnecté."}
+
+    return {"status": "success", "message": "Statut hors-ligne enregistré."}

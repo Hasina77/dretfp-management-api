@@ -100,15 +100,15 @@ class ChefCentre(SQLModel, table=True):
     id_etablissement: int = Field(index=True)
 
 
-class NoteApprenant(SQLModel, table=True):
-    __tablename__ = "notes_apprenants"
-    id_note: Optional[int] = Field(default=None, primary_key=True)
-    apprenant_id: int = Field(foreign_key="apprenants.id_apprenant", index=True)
-    note_theorique: float = Field(default=0.0)
-    note_pratique: float = Field(default=0.0)
-    note_stage: Optional[float] = Field(default=None)
-    moyenne_generale: float = Field(default=0.0)
-    statut_deliberation: str = Field(default="En attente")
+class Note(SQLModel, table=True):
+    __tablename__ = "notes"
+
+    id_note: Optional[int] = Field(default=None, primary_key=True, index=True)
+    id_apprenant: int = Field(foreign_key="apprenants.id_apprenant", nullable=False)
+    id_matiere: int = Field(foreign_key="matieres.id_matiere", nullable=False)
+    note_sur_20: float = Field(default=0.0)
+    date_saisie: datetime = Field(default_factory=datetime.utcnow)
+
 
 class UtilisateurAdministration(SQLModel, table=True):
     __tablename__ = "utilisateurs_administration"
@@ -153,3 +153,12 @@ class DocumentCentre(SQLModel, table=True):
     type_fichier: str = Field(nullable=False)
     chemin_stockage: str = Field(nullable=False)
     date_envoi: datetime = Field(default_factory=datetime.utcnow)
+
+class Matiere(SQLModel, table=True):
+    __tablename__ = "matieres"
+
+    id_matiere: Optional[int] = Field(default=None, primary_key=True, index=True)
+    id_examen: int = Field(nullable=False, index=True)
+    nom_matiere: str = Field(nullable=False)
+    coefficient: int = Field(default=1)
+    type_epreuve: str = Field(default="Écrite")
