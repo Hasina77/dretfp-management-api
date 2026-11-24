@@ -17,7 +17,7 @@ class Apprenant(SQLModel, table=True):
     filiere_id: str 
     metier_id: str  
     session: int  
-    mention: str   
+    mention: Optional[str] = Field(default=None)   
     progression: str = Field(default="AUCUNE_DEMANDE") 
 
 class DemandeTitre(SQLModel, table=True):
@@ -62,7 +62,11 @@ class Secteur(SQLModel, table=True):
     etablissement_id: int = Field(index=True)
     description_sec: Optional[str] = None
 
+class EtablissementSecteur(SQLModel, table=True):
+    __tablename__ = "etablissement_secteurs"
 
+    id_etablissement: int = Field(primary_key=True, index=True)
+    id_secteur: int = Field(primary_key=True, index=True)
 
 class Filiere(SQLModel, table=True):
     __tablename__ = "filieres"
